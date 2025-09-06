@@ -1,5 +1,7 @@
+import logging
+
 from discord.ext import commands
-from discord import Message, Interaction
+from discord import Message, Interaction, DiscordException
 import discord
 from discord import app_commands
 from sqlalchemy import Column, Integer, Boolean
@@ -7,11 +9,13 @@ from sqlalchemy.orm import declarative_base
 import os
 
 Base = declarative_base()
+logger = logging.getLogger('discord')
 
 class OnlyAttachmentsChannel(Base):
     __tablename__ = 'only_attachments_channels'
     id = Column(Integer, primary_key=True)
-    channel_id = Column(Integer, unique=True, nullable=False)
+    guild_id = Column(Integer, nullable=False)  # New column
+    channel_id = Column(Integer, unique=False, nullable=False)
     enabled = Column(Boolean, default=True)
 
 # The cog itself
@@ -33,13 +37,15 @@ class OnlyAttachmentsCog(commands.GroupCog, group_name="onlyattachments"):
             await interaction.response.send_message("You need administrator permissions to use this command.", ephemeral=True)
             return
         channel = channel or interaction.channel
-        existing = self.session.query(OnlyAttachmentsChannel).filter_by(channel_id=channel.id).first()
+        guild_id = interaction.guild.id
+        existing = self.session.query(OnlyAttachmentsChannel).filter_by(guild_id=guild_id, channel_id=channel.id).first()
         if existing:
             existing.enabled = True
         else:
-            self.session.add(OnlyAttachmentsChannel(channel_id=channel.id, enabled=True))
+            self.session.add(OnlyAttachmentsChannel(guild_id=guild_id, channel_id=channel.id, enabled=True))
         self.session.commit()
-        await interaction.response.send_message(f"Channel <#{channel.id}> set to 'only attachments' mode.")
+        logger.debug(f"Set channel <#{channel.id}> to 'only attachments' mode.")
+        await interaction.response.send_message(f"Channel <#{channel.id}> set to 'only attachments' mode.", ephemeral=True)
 
     @app_commands.command(name="remove", description="Remove a channel from 'only attachments' mode.")
     @app_commands.describe(channel="Channel to remove from attachments only (defaults to current channel if omitted)")
@@ -48,38 +54,50 @@ class OnlyAttachmentsCog(commands.GroupCog, group_name="onlyattachments"):
             await interaction.response.send_message("You need administrator permissions to use this command.", ephemeral=True)
             return
         channel = channel or interaction.channel
-        config = self.session.query(OnlyAttachmentsChannel).filter_by(channel_id=channel.id).first()
+        guild_id = interaction.guild.id
+        config = self.session.query(OnlyAttachmentsChannel).filter_by(guild_id=guild_id, channel_id=channel.id).first()
         if config:
             config.enabled = False
             self.session.commit()
-            await interaction.response.send_message(f"Channel <#{channel.id}> removed from 'only attachments' mode.")
+            logger.debug(f"Removed channel <#{channel.id}> from 'only attachments' mode in guild {guild_id}.")
+            await interaction.response.send_message(f"Channel <#{channel.id}> removed from 'only attachments' mode.", ephemeral=True)
         else:
-            await interaction.response.send_message("Channel not found in configuration.")
+            await interaction.response.send_message("Channel not found in configuration.", ephemeral=True)
 
     @app_commands.command(name="list", description="List all channels in 'only attachments' mode.")
     async def list(self, interaction: Interaction):
         if not interaction.user.guild_permissions.administrator:
             await interaction.response.send_message("You need administrator permissions to use this command.", ephemeral=True)
             return
-        channels = self.session.query(OnlyAttachmentsChannel).filter_by(enabled=True).all()
+        guild_id = interaction.guild.id
+        channels = self.session.query(OnlyAttachmentsChannel).filter_by(guild_id=guild_id, enabled=True).all()
         if not channels:
-            await interaction.response.send_message("No channels are set to 'only attachments' mode.")
+            logger.debug(f"No channels in 'only attachments' mode in guild {guild_id}.")
+            await interaction.response.send_message("No channels are set to 'only attachments' mode.", ephemeral=True)
         else:
+            logger.debug(f"Found {len(channels)} channels in 'only attachments' mode in guild {guild_id}.")
             msg = "Channels in 'only attachments' mode:\n" + '\n'.join(f"<#{c.channel_id}>" for c in channels)
-            await interaction.response.send_message(msg)
+            await interaction.response.send_message(msg, ephemeral=True)
 
     @commands.Cog.listener()
     async def on_message(self, message: Message):
+        logger.debug(f"on_message called for channel {getattr(message.channel, 'id', None)} in guild {getattr(message.guild, 'id', None)} by {getattr(message.author, 'id', None)}")
         if message.author.bot:
             return
         channel_id = message.channel.id
-        config = self.session.query(OnlyAttachmentsChannel).filter_by(channel_id=channel_id, enabled=True).first()
+        guild_id = message.guild.id if message.guild else None
+        if not guild_id:
+            logger.debug("Message is not from a guild; skipping.")
+            return
+        config = self.session.query(OnlyAttachmentsChannel).filter_by(guild_id=guild_id, channel_id=channel_id, enabled=True).first()
         if config:
             if not message.attachments:
                 try:
+                    logger.debug(f"Attempting to remove message by {message.author} without attachments in 'only attachments' channel {channel_id} (guild {guild_id}).")
                     await message.delete()
-                except Exception:
-                    pass
+                    logger.debug(f"Message by {message.author} deleted successfully.")
+                except DiscordException as e:
+                    logger.error(f"Failed to remove message by {message.author} without attachments in 'only attachments' channel {channel_id} (guild {guild_id}): {e}")
 
 def setup(bot):
     pass

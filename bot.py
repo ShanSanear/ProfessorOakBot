@@ -20,12 +20,20 @@ if not token or not guild_ids:
 
 guild_ids = [int(gid.strip()) for gid in guild_ids.split(',') if gid.strip().isdigit()]
 
-# Set up logging
 logger = logging.getLogger('discord')
 if not logger.hasHandlers():
-    logging.basicConfig(level=logging.INFO)
+    handler = logging.StreamHandler()
+    handler.setLevel(logging.DEBUG)
+    formatter = logging.Formatter('%(asctime)s %(levelname)s %(name)s: %(message)s')
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    logger.setLevel(logging.DEBUG)
+else:
+    logger.setLevel(logging.DEBUG)
+    for handler in logger.handlers:
+        handler.setLevel(logging.DEBUG)
 
-logger.info(f'Allowed guild IDs: {guild_ids}')
+# logger.info(f'Allowed guild IDs: {guild_ids}')
 
 # Set up database (SQLite)
 Base = declarative_base()
