@@ -1,5 +1,6 @@
 from discord.ext import commands
 from discord import Message
+import discord
 from sqlalchemy import Column, Integer, Boolean
 from sqlalchemy.orm import declarative_base
 
@@ -41,25 +42,25 @@ class OnlyAttachmentsCog(commands.Cog):
 
     @onlyattachments.command(name='add')
     @commands.has_permissions(administrator=True)
-    async def add_channel(self, ctx, channel_id: int = None):
-        channel_id = channel_id or ctx.channel.id
-        existing = self.session.query(OnlyAttachmentsChannel).filter_by(channel_id=channel_id).first()
+    async def add_channel(self, ctx, channel: discord.TextChannel = None):
+        channel = channel or ctx.channel
+        existing = self.session.query(OnlyAttachmentsChannel).filter_by(channel_id=channel.id).first()
         if existing:
             existing.enabled = True
         else:
-            self.session.add(OnlyAttachmentsChannel(channel_id=channel_id, enabled=True))
+            self.session.add(OnlyAttachmentsChannel(channel_id=channel.id, enabled=True))
         self.session.commit()
-        await ctx.send(f"Channel <#{channel_id}> set to 'only attachments' mode.")
+        await ctx.send(f"Channel <#{channel.id}> set to 'only attachments' mode.")
 
     @onlyattachments.command(name='remove')
     @commands.has_permissions(administrator=True)
-    async def remove_channel(self, ctx, channel_id: int = None):
-        channel_id = channel_id or ctx.channel.id
-        config = self.session.query(OnlyAttachmentsChannel).filter_by(channel_id=channel_id).first()
+    async def remove_channel(self, ctx, channel: discord.TextChannel = None):
+        channel = channel or ctx.channel
+        config = self.session.query(OnlyAttachmentsChannel).filter_by(channel_id=channel.id).first()
         if config:
             config.enabled = False
             self.session.commit()
-            await ctx.send(f"Channel <#{channel_id}> removed from 'only attachments' mode.")
+            await ctx.send(f"Channel <#{channel.id}> removed from 'only attachments' mode.")
         else:
             await ctx.send("Channel not found in configuration.")
 
@@ -76,4 +77,3 @@ class OnlyAttachmentsCog(commands.Cog):
 def setup(bot):
     # The session and engine must be passed from main bot file
     pass
-
