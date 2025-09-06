@@ -51,16 +51,11 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 @bot.event
 async def setup_hook():
     await bot.add_cog(OnlyAttachmentsCog(bot, session))
-    # Fast guild-specific sync for slash commands
-    for gid in guild_ids:
-        try:
-            guild_obj = bot.get_guild(gid) or discord.Object(id=gid)
-            await bot.tree.sync(guild=guild_obj)
-            logger.info(f'Slash commands synced to guild {gid}')
-        except Exception as e:
-            logger.error(f'Failed to sync commands to guild {gid}: {e}')
-    # Optionally, also sync globally (may take up to 1 hour)
-    # await bot.tree.sync()
+    try:
+        await bot.tree.sync()
+        logger.info('Slash commands synced globally')
+    except Exception as e:
+        logger.error(f'Failed to sync commands globally: {e}')
 @bot.event
 async def on_ready():
     logger.info(f'Logged in as {bot.user} (ID: {bot.user.id})')

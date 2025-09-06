@@ -20,15 +20,15 @@ def setup_database(engine):
 
 GUILD_ID = int(os.getenv('DISCORD_GUILD_IDS', '0').split(',')[0].strip())
 
-class OnlyAttachmentsCog(commands.GroupCog):
+class OnlyAttachmentsCog(commands.GroupCog, group_name="onlyattachments"):
     def __init__(self, bot, session):
+        super().__init__()
         self.bot = bot
         self.session = session
 
-    @app_commands.command(name="onlyattachments_add", description="Add a channel to 'only attachments' mode.")
-    @app_commands.guilds(discord.Object(id=GUILD_ID))
+    @app_commands.command(name="add", description="Add a channel to 'only attachments' mode.")
     @app_commands.describe(channel="Channel to set as attachments only (defaults to current channel if omitted)")
-    async def onlyattachments_add(self, interaction: Interaction, channel: discord.TextChannel = None):
+    async def add(self, interaction: Interaction, channel: discord.TextChannel = None):
         if not interaction.user.guild_permissions.administrator:
             await interaction.response.send_message("You need administrator permissions to use this command.", ephemeral=True)
             return
@@ -41,10 +41,9 @@ class OnlyAttachmentsCog(commands.GroupCog):
         self.session.commit()
         await interaction.response.send_message(f"Channel <#{channel.id}> set to 'only attachments' mode.")
 
-    @app_commands.command(name="onlyattachments_remove", description="Remove a channel from 'only attachments' mode.")
-    @app_commands.guilds(discord.Object(id=GUILD_ID))
+    @app_commands.command(name="remove", description="Remove a channel from 'only attachments' mode.")
     @app_commands.describe(channel="Channel to remove from attachments only (defaults to current channel if omitted)")
-    async def onlyattachments_remove(self, interaction: Interaction, channel: discord.TextChannel = None):
+    async def remove(self, interaction: Interaction, channel: discord.TextChannel = None):
         if not interaction.user.guild_permissions.administrator:
             await interaction.response.send_message("You need administrator permissions to use this command.", ephemeral=True)
             return
@@ -57,9 +56,8 @@ class OnlyAttachmentsCog(commands.GroupCog):
         else:
             await interaction.response.send_message("Channel not found in configuration.")
 
-    @app_commands.command(name="onlyattachments_list", description="List all channels in 'only attachments' mode.")
-    @app_commands.guilds(discord.Object(id=GUILD_ID))
-    async def onlyattachments_list(self, interaction: Interaction):
+    @app_commands.command(name="list", description="List all channels in 'only attachments' mode.")
+    async def list(self, interaction: Interaction):
         if not interaction.user.guild_permissions.administrator:
             await interaction.response.send_message("You need administrator permissions to use this command.", ephemeral=True)
             return
