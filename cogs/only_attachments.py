@@ -44,7 +44,7 @@ class OnlyAttachmentsCog(commands.GroupCog, group_name="onlyattachments"):
         else:
             self.session.add(OnlyAttachmentsChannel(guild_id=guild_id, channel_id=channel.id, enabled=True))
         self.session.commit()
-        logger.debug(f"Set channel <#{channel.id}> to 'only attachments' mode.")
+        logger.info(f"Set channel <#{channel.id}> to 'only attachments' mode.")
         await interaction.response.send_message(f"Channel <#{channel.id}> set to 'only attachments' mode.", ephemeral=True)
 
     @app_commands.command(name="remove", description="Remove a channel from 'only attachments' mode.")
@@ -59,7 +59,7 @@ class OnlyAttachmentsCog(commands.GroupCog, group_name="onlyattachments"):
         if config:
             config.enabled = False
             self.session.commit()
-            logger.debug(f"Removed channel <#{channel.id}> from 'only attachments' mode in guild {guild_id}.")
+            logger.info(f"Removed channel <#{channel.id}> from 'only attachments' mode in guild {guild_id}.")
             await interaction.response.send_message(f"Channel <#{channel.id}> removed from 'only attachments' mode.", ephemeral=True)
         else:
             await interaction.response.send_message("Channel not found in configuration.", ephemeral=True)
@@ -72,30 +72,30 @@ class OnlyAttachmentsCog(commands.GroupCog, group_name="onlyattachments"):
         guild_id = interaction.guild.id
         channels = self.session.query(OnlyAttachmentsChannel).filter_by(guild_id=guild_id, enabled=True).all()
         if not channels:
-            logger.debug(f"No channels in 'only attachments' mode in guild {guild_id}.")
+            logger.info(f"No channels in 'only attachments' mode in guild {guild_id}.")
             await interaction.response.send_message("No channels are set to 'only attachments' mode.", ephemeral=True)
         else:
-            logger.debug(f"Found {len(channels)} channels in 'only attachments' mode in guild {guild_id}.")
+            logger.info(f"Found {len(channels)} channels in 'only attachments' mode in guild {guild_id}.")
             msg = "Channels in 'only attachments' mode:\n" + '\n'.join(f"<#{c.channel_id}>" for c in channels)
             await interaction.response.send_message(msg, ephemeral=True)
 
     @commands.Cog.listener()
     async def on_message(self, message: Message):
-        logger.debug(f"on_message called for channel {getattr(message.channel, 'id', None)} in guild {getattr(message.guild, 'id', None)} by {getattr(message.author, 'id', None)}")
+        logger.info(f"on_message called for channel {getattr(message.channel, 'id', None)} in guild {getattr(message.guild, 'id', None)} by {getattr(message.author, 'id', None)}")
         if message.author.bot:
             return
         channel_id = message.channel.id
         guild_id = message.guild.id if message.guild else None
         if not guild_id:
-            logger.debug("Message is not from a guild; skipping.")
+            logger.info("Message is not from a guild; skipping.")
             return
         config = self.session.query(OnlyAttachmentsChannel).filter_by(guild_id=guild_id, channel_id=channel_id, enabled=True).first()
         if config:
             if not message.attachments:
                 try:
-                    logger.debug(f"Attempting to remove message by {message.author} without attachments in 'only attachments' channel {channel_id} (guild {guild_id}).")
+                    logger.info(f"Attempting to remove message by {message.author} without attachments in 'only attachments' channel {channel_id} (guild {guild_id}).")
                     await message.delete()
-                    logger.debug(f"Message by {message.author} deleted successfully.")
+                    logger.info(f"Message by {message.author} deleted successfully.")
                 except DiscordException as e:
                     logger.error(f"Failed to remove message by {message.author} without attachments in 'only attachments' channel {channel_id} (guild {guild_id}): {e}")
 
