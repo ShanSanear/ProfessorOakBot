@@ -1,0 +1,4 @@
+.env
+botdata.db
+**/botdata.db
+.venv
