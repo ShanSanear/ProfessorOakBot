@@ -6,6 +6,7 @@ from discord import Intents
 from sqlalchemy import create_engine, Column, Integer, String, Sequence
 from sqlalchemy.orm import sessionmaker, declarative_base
 from dotenv import load_dotenv
+from cogs.only_attachments import OnlyAttachmentsCog, OnlyAttachmentsChannel, Base as OA_Base
 
 # Load environment variables from .env if present
 load_dotenv()
@@ -27,6 +28,9 @@ logger.info(f'Allowed guild IDs: {guild_ids}')
 # Set up database (SQLite)
 Base = declarative_base()
 
+# Import and merge OnlyAttachmentsChannel model
+OA_Base.metadata.create_all(bind=create_engine('sqlite:///botdata.db'))
+
 class ExampleModel(Base):
     __tablename__ = 'example'
     id = Column(Integer, Sequence('user_id_seq'), primary_key=True)
@@ -40,6 +44,11 @@ session = Session()
 # Set up Discord bot
 intents = Intents.default()
 bot = commands.Bot(command_prefix='!', intents=intents)
+
+# Load OnlyAttachmentsCog
+@bot.event
+async def setup_hook():
+    await bot.add_cog(OnlyAttachmentsCog(bot, session))
 
 @bot.event
 async def on_ready():
