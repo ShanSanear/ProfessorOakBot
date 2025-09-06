@@ -9,10 +9,11 @@ services:
       - TZ=UTC
     volumes:
       - ./:/app
-      - botdata:/app/database/botdata.db
+      - botdata:/app/database
 
     env_file:
-      - stack.env
+      - path: stack.env
+        required: false
       - path: .env
         required: false
 
