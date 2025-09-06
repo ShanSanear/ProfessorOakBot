@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  professoroakbot:
+    build: .
+    container_name: professor_oak_bot
+    restart: unless-stopped
+    environment:
+      - TZ=UTC
+    volumes:
+      - ./:/app
+      - botdata:/app/database/botdata.db
+
+    env_file:
+      - stack.env
+      - .env
+
+volumes:
+  botdata:
+
+
