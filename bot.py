@@ -10,7 +10,8 @@ from dotenv import load_dotenv
 from cogs.only_attachments import OnlyAttachmentsCog, OnlyAttachmentsChannel, Base as OA_Base
 
 # Load environment variables from .env if present
-load_dotenv()
+load_dotenv(".env")
+load_dotenv("stack.env")
 
 token = os.getenv('DISCORD_TOKEN')
 guild_ids = os.getenv('DISCORD_GUILD_IDS')
