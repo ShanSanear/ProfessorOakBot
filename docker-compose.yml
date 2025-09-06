@@ -13,7 +13,9 @@ services:
 
     env_file:
       - stack.env
-      - .env
+      - path: .env
+        required: false
+
 
 volumes:
   botdata:
