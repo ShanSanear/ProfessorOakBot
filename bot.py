@@ -21,8 +21,9 @@ if not token or not guild_ids:
 guild_ids = [int(gid.strip()) for gid in guild_ids.split(',') if gid.strip().isdigit()]
 
 # Set up logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger('discord')
+if not logger.hasHandlers():
+    logging.basicConfig(level=logging.INFO)
 
 logger.info(f'Allowed guild IDs: {guild_ids}')
 
