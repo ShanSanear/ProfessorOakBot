@@ -8,7 +8,6 @@ services:
     environment:
       - TZ=UTC
     volumes:
-      - ./:/app
       - botdata:/app/database
 
     env_file:
