@@ -12,6 +12,7 @@ from cogs.only_attachments import (
     OnlyAttachmentsChannel,
     Base as OA_Base,
 )
+from cogs.cleanup import CleanupCog
 from pathlib import Path
 
 # Load environment variables from .env if present
@@ -73,6 +74,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 @bot.event
 async def setup_hook():
     await bot.add_cog(OnlyAttachmentsCog(bot, session))
+    await bot.add_cog(CleanupCog(bot))
     try:
         await bot.tree.sync()
         logger.info("Slash commands synced globally")

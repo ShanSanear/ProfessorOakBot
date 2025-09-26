@@ -1,4 +1,7 @@
 discord.py
 python-dotenv
 SQLAlchemy
+pylint
+black
+
 

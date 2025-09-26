@@ -2,3 +2,5 @@
 botdata.db
 **/botdata.db
 .venv
+__pycache__
+*.pyc

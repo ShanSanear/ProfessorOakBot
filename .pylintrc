@@ -1,0 +1,13 @@
+[MASTER]
+# Include the pylint_django plugin to avoid false positives with Django.
+load-plugins=
+
+[MESSAGES CONTROL]
+# Disable the following messages:
+# - missing-docstring: We don't require docstrings for all methods.
+# - invalid-name: We use names that don't conform to snake_case.
+disable=missing-docstring,invalid-name
+
+[REPORTS]
+# Do not generate a report.
+reports=no
