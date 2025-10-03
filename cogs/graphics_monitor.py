@@ -14,8 +14,8 @@ logger = logging.getLogger("discord")
 
 # Constants
 SUPPORTED_DATE_FORMATS = """Supported formats:
-• `DD.MM-DD.MM` (e.g., 25.12-31.12) - Date range
-• `DD.MM HH:mm-HH:mm` (e.g., 15.03 10:00-18:00) - Time range on a specific day
+• `DD.MM-DD.MM` (e.g., 25.12-31.12 or 25.12 - 31.12) - Date range (spaces optional)
+• `DD.MM HH:mm-HH:mm` (e.g., 15.03 10:00-18:00 or 04.10 14:00 - 17:00) - Time range (spaces optional)
 • `MONTH_NAME` (e.g., January, February, Styczeń, Luty) - Entire month (English or Polish)"""
 
 
@@ -65,8 +65,8 @@ class DateParser:
     """Handles parsing of date formats from message content"""
     
     # Regex patterns for date formats
-    DATE_RANGE_PATTERN = r'(\d{1,2})\.(\d{1,2})-(\d{1,2})\.(\d{1,2})'  # DD.MM-DD.MM
-    DATETIME_RANGE_PATTERN = r'(\d{1,2})\.(\d{1,2})\s+(\d{1,2}):(\d{1,2})-(\d{1,2}):(\d{1,2})'  # DD.MM HH:mm-HH:mm
+    DATE_RANGE_PATTERN = r'(\d{1,2})\.(\d{1,2})\s*-\s*(\d{1,2})\.(\d{1,2})'  # DD.MM-DD.MM (spaces around dash optional)
+    DATETIME_RANGE_PATTERN = r'(\d{1,2})\.(\d{1,2})\s+(\d{1,2}):(\d{1,2})\s*-\s*(\d{1,2}):(\d{1,2})'  # DD.MM HH:mm-HH:mm (spaces around dash optional)
     MONTH_NAME_PATTERN = r'\b(january|february|march|april|may|june|july|august|september|october|november|december|styczeń|styczen|luty|marzec|kwiecień|kwiecien|maj|czerwiec|lipiec|sierpień|sierpien|wrzesień|wrzesien|październik|pazdziernik|listopad|grudzień|grudzien)\b'
     
     MONTHS = {

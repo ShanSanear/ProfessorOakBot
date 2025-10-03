@@ -48,6 +48,32 @@ class TestDateParser:
         assert result.original_date_string == "15.03 10:00-18:00"
         assert result.expiry_datetime is not None
     
+    def test_datetime_range_with_spaces_around_dash(self):
+        """Test datetime range with spaces around the dash"""
+        # Test case from user: "04.10 14:00 - 17:00 🔩"
+        result = DateParser.parse_date("04.10 14:00 - 17:00 🔩")
+        assert result.original_date_string == "04.10 14:00 - 17:00"
+        assert result.expiry_datetime is not None
+        
+        # Test with various spacing
+        result = DateParser.parse_date("04.10 14:00  -  17:00")
+        assert result.original_date_string == "04.10 14:00  -  17:00"
+        assert result.expiry_datetime is not None
+        
+        result = DateParser.parse_date("04.10 14:00- 17:00")
+        assert result.original_date_string == "04.10 14:00- 17:00"
+        assert result.expiry_datetime is not None
+    
+    def test_date_range_with_spaces_around_dash(self):
+        """Test date range with spaces around the dash"""
+        result = DateParser.parse_date("25.12 - 31.12")
+        assert result.original_date_string == "25.12 - 31.12"
+        assert result.expiry_datetime is not None
+        
+        result = DateParser.parse_date("25.12  -  31.12")
+        assert result.original_date_string == "25.12  -  31.12"
+        assert result.expiry_datetime is not None
+    
     def test_month_name_format_valid(self):
         """Test valid month name formats"""
         # Test a few months (note: grace period adds 1 day after month end)
