@@ -4,3 +4,7 @@ botdata.db
 .venv
 __pycache__
 *.pyc
+backups/**
+stack.env
+.env.backup
+.env.bak

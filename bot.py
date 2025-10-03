@@ -13,6 +13,7 @@ from cogs.only_attachments import (
     Base as OA_Base,
 )
 from cogs.cleanup import CleanupCog
+from cogs.graphics_monitor import GraphicsMonitorCog, Base as GM_Base
 from pathlib import Path
 
 # Load environment variables from .env if present
@@ -21,11 +22,19 @@ load_dotenv("stack.env")
 
 token = os.getenv("DISCORD_TOKEN")
 guild_ids = os.getenv("DISCORD_GUILD_IDS")
+moderator_id = os.getenv("MODERATOR_ID")
 
 if not token or not guild_ids:
     raise ValueError(
         "DISCORD_TOKEN and DISCORD_GUILD_IDS must be set as environment variables."
     )
+
+if not moderator_id:
+    raise ValueError(
+        "MODERATOR_ID must be set as environment variable for graphics monitoring."
+    )
+
+moderator_id = int(moderator_id)
 
 guild_ids = [int(gid.strip()) for gid in guild_ids.split(",") if gid.strip().isdigit()]
 
@@ -51,6 +60,7 @@ Path(database_path).parent.mkdir(parents=True, exist_ok=True)
 # Import and merge OnlyAttachmentsChannel model
 engine = create_engine(f"sqlite:///{database_path}")
 OA_Base.metadata.create_all(bind=engine)
+GM_Base.metadata.create_all(bind=engine)
 
 Base.metadata.create_all(engine)
 Session = sessionmaker(bind=engine)
@@ -75,6 +85,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 async def setup_hook():
     await bot.add_cog(OnlyAttachmentsCog(bot, session))
     await bot.add_cog(CleanupCog(bot))
+    await bot.add_cog(GraphicsMonitorCog(bot, session, moderator_id))
     try:
         await bot.tree.sync()
         logger.info("Slash commands synced globally")
