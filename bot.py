@@ -24,6 +24,12 @@ token = os.getenv("DISCORD_TOKEN")
 guild_ids = os.getenv("DISCORD_GUILD_IDS")
 moderator_id = os.getenv("MODERATOR_ID")
 
+# Graphics Monitor Reminder Configuration (with defaults)
+reminder_timezone = os.getenv("REMINDER_TIMEZONE", "Europe/Warsaw")
+reminder_time_hour = int(os.getenv("REMINDER_TIME_HOUR", "9"))
+reminder_time_minute = int(os.getenv("REMINDER_TIME_MINUTE", "0"))
+reminder_text = os.getenv("REMINDER_TEXT", "przypominajka")
+
 if not token or not guild_ids:
     raise ValueError(
         "DISCORD_TOKEN and DISCORD_GUILD_IDS must be set as environment variables."
@@ -85,7 +91,17 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 async def setup_hook():
     await bot.add_cog(OnlyAttachmentsCog(bot, session))
     await bot.add_cog(CleanupCog(bot))
-    await bot.add_cog(GraphicsMonitorCog(bot, session, moderator_id))
+    await bot.add_cog(
+        GraphicsMonitorCog(
+            bot,
+            session,
+            moderator_id,
+            reminder_timezone=reminder_timezone,
+            reminder_time_hour=reminder_time_hour,
+            reminder_time_minute=reminder_time_minute,
+            reminder_text=reminder_text
+        )
+    )
     try:
         await bot.tree.sync()
         logger.info("Slash commands synced globally")
