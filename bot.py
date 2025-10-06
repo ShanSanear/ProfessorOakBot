@@ -9,11 +9,12 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from dotenv import load_dotenv
 
-# Import shared models and cogs
-from database.models import Base
 from cogs.only_attachments import OnlyAttachmentsCog
 from cogs.cleanup import CleanupCog
 from cogs.graphics_monitor import GraphicsMonitorCog
+
+# Import shared models and cogs
+from database.models import Base
 
 # Load environment variables from .env if present
 load_dotenv(".env")
