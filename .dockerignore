@@ -1,11 +1,19 @@
 # Python
-__pycache__/
+**/__pycache__/
 *.pyc
 *.pyo
 *.pyd
 
 # SQLite database
 botdata.db
+**/botdata.db
+**/.pytest_cache
+.git
+.idea
+.vscode
+docs
+backups/**
+.venv
 
 # Environment
 .env
