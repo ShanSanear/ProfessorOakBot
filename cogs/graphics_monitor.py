@@ -3,6 +3,7 @@ import datetime
 import logging
 import re
 from typing import Optional, NamedTuple
+from zoneinfo import ZoneInfo
 
 import discord
 from discord import app_commands, Interaction, TextChannel, Message, User
@@ -23,6 +24,7 @@ class DateParseResult(NamedTuple):
     """Result from parsing a date string"""
     original_date_string: Optional[str]
     expiry_datetime: Optional[datetime.datetime]
+    in_effect_datetime: Optional[datetime.datetime]  # When the graphic goes "in effect" (start time)
 
 
 # Database models
@@ -52,6 +54,12 @@ class MonitoredGraphic(Base):
     # Time range information
     date_format = Column(String, nullable=True)  # The original date string found
     expiry_date = Column(DateTime, nullable=True)  # When it should expire (with grace period)
+    in_effect_date = Column(DateTime, nullable=True)  # When the graphic goes "in effect" (start time)
+    
+    # Reminder tracking
+    reminder_scheduled_time = Column(DateTime, nullable=True)  # When reminder should be sent
+    reminder_sent = Column(Boolean, default=False)  # Whether reminder was already sent
+    reminder_message_id = Column(BigInteger, nullable=True)  # ID of the reminder message
     
     # Status tracking
     pending_approval = Column(Boolean, default=False)
@@ -114,7 +122,8 @@ class DateParser:
     def parse_date(cls, content: str) -> DateParseResult:
         """
         Parse date from message content.
-        Returns: DateParseResult with original_date_string and expiry_datetime (includes 1-day grace period)
+        Returns: DateParseResult with original_date_string, expiry_datetime (includes 1-day grace period),
+                 and in_effect_datetime (start time)
         """
         content_lower = content.lower()
         
@@ -126,16 +135,16 @@ class DateParser:
             
             try:
                 # Create start and end dates
-                start_date = datetime.datetime(current_year, month1, day1)
-                end_date = datetime.datetime(current_year, month2, day2)
+                start_date = datetime.datetime(current_year, month1, day1, tzinfo=datetime.timezone.utc)
+                end_date = datetime.datetime(current_year, month2, day2, tzinfo=datetime.timezone.utc)
                 
                 # If end date is before start date, it spans to next year
                 if end_date < start_date:
-                    end_date = datetime.datetime(current_year + 1, month2, day2)
+                    end_date = datetime.datetime(current_year + 1, month2, day2, tzinfo=datetime.timezone.utc)
                 
                 # Add 1 day grace period and set to end of day
                 expiry = end_date.replace(hour=23, minute=59, second=59) + datetime.timedelta(days=1)
-                return DateParseResult(match.group(0), expiry)
+                return DateParseResult(match.group(0), expiry, start_date)
             except ValueError:
                 pass  # Invalid date, continue to next pattern
         
@@ -146,12 +155,13 @@ class DateParser:
             current_year = datetime.datetime.now().year
             
             try:
-                # Create datetime with end time
-                end_datetime = datetime.datetime(current_year, month, day, hour2, minute2)
+                # Create datetime with start and end times
+                start_datetime = datetime.datetime(current_year, month, day, hour1, minute1, tzinfo=datetime.timezone.utc)
+                end_datetime = datetime.datetime(current_year, month, day, hour2, minute2, tzinfo=datetime.timezone.utc)
                 
                 # Add 1 day grace period
                 expiry = end_datetime + datetime.timedelta(days=1)
-                return DateParseResult(match.group(0), expiry)
+                return DateParseResult(match.group(0), expiry, start_datetime)
             except ValueError:
                 pass  # Invalid date, continue to next pattern
         
@@ -162,42 +172,58 @@ class DateParser:
             month_num = cls.MONTHS[month_name]
             current_year = datetime.datetime.now().year
             
+            # Start date is first day of the month
+            start_date = datetime.datetime(current_year, month_num, 1, tzinfo=datetime.timezone.utc)
+            
             # Get last day of the month
             if month_num == 12:
                 # December - last day is 31st
                 last_day = 31
-                end_date = datetime.datetime(current_year, 12, 31, 23, 59, 59)
+                end_date = datetime.datetime(current_year, 12, 31, 23, 59, 59, tzinfo=datetime.timezone.utc)
             else:
                 # Get first day of next month, then subtract 1 day
-                next_month = datetime.datetime(current_year, month_num + 1, 1)
+                next_month = datetime.datetime(current_year, month_num + 1, 1, tzinfo=datetime.timezone.utc)
                 end_date = next_month - datetime.timedelta(seconds=1)
             
             # Add 1 day grace period
             expiry = end_date + datetime.timedelta(days=1)
             # Use proper capitalization for display
             display_name = cls.MONTH_DISPLAY_NAMES.get(month_name, month_name.capitalize())
-            return DateParseResult(display_name, expiry)
+            return DateParseResult(display_name, expiry, start_date)
         
-        return DateParseResult(None, None)
+        return DateParseResult(None, None, None)
 
 
 @app_commands.default_permissions(administrator=True)
 class GraphicsMonitorCog(commands.GroupCog, group_name="graphics"):
     """Monitors graphics channels and manages time-based message deletion"""
     
-    def __init__(self, bot, session, moderator_id: int):
+    def __init__(self, bot, session, moderator_id: int, 
+                 reminder_timezone: str = "Europe/Warsaw",
+                 reminder_time_hour: int = 9,
+                 reminder_time_minute: int = 0,
+                 reminder_text: str = "przypominajka"):
         self.bot = bot
         self.session = session
         self.moderator_id = moderator_id
         self.pending_approvals = {}  # message_id -> MonitoredGraphic
         self.pending_date_requests = {}  # message_id -> Message (for persistence)
         
-        # Start the monitoring task
+        # Reminder configuration
+        self.reminder_timezone = ZoneInfo(reminder_timezone)
+        self.reminder_time_hour = reminder_time_hour
+        self.reminder_time_minute = reminder_time_minute
+        self.reminder_text = reminder_text
+        self.reminder_emoji = "⏰"  # Clock emoji for marking messages with reminders
+        
+        # Start the monitoring tasks
         self.check_expired_graphics.start()
+        self.check_and_send_reminders.start()
     
     def cog_unload(self):
         """Stop background tasks when cog is unloaded"""
         self.check_expired_graphics.cancel()
+        self.check_and_send_reminders.cancel()
     
     @tasks.loop(hours=1)
     async def check_expired_graphics(self):
@@ -226,6 +252,108 @@ class GraphicsMonitorCog(commands.GroupCog, group_name="graphics"):
     async def before_check_expired_graphics(self):
         """Wait for bot to be ready before starting the task"""
         await self.bot.wait_until_ready()
+    
+    def _calculate_reminder_time(self, in_effect_datetime: datetime.datetime, message_posted_at: datetime.datetime) -> Optional[datetime.datetime]:
+        """
+        Calculate when reminder should be posted based on 48h rule.
+        Returns None if reminder should not be posted.
+        
+        Rules:
+        - If message posted <48h before in_effect time: no reminder
+        - Otherwise: post reminder day before at configured time
+        """
+        time_until_effect = in_effect_datetime - message_posted_at
+        
+        # If less than 48 hours until in effect, no reminder
+        if time_until_effect < datetime.timedelta(hours=48):
+            return None
+        
+        # Calculate day before in_effect_datetime at configured time
+        day_before = in_effect_datetime.date() - datetime.timedelta(days=1)
+        
+        # Create datetime in the configured timezone
+        reminder_time_local = datetime.datetime.combine(
+            day_before,
+            datetime.time(self.reminder_time_hour, self.reminder_time_minute),
+            tzinfo=self.reminder_timezone
+        )
+        
+        # Convert to UTC for storage
+        reminder_time_utc = reminder_time_local.astimezone(datetime.timezone.utc)
+        
+        return reminder_time_utc
+    
+    @tasks.loop(hours=1)
+    async def check_and_send_reminders(self):
+        """Hourly task to check for reminders that need to be sent"""
+        logger.info("Running reminder check...")
+        
+        try:
+            now = datetime.datetime.now(datetime.timezone.utc)
+            
+            # Find all graphics that need reminders sent
+            # (scheduled time has passed, reminder not yet sent, and not marked as no date)
+            graphics_needing_reminders = self.session.query(MonitoredGraphic).filter(
+                MonitoredGraphic.reminder_scheduled_time <= now,
+                MonitoredGraphic.reminder_sent == False,
+                MonitoredGraphic.marked_no_date == False,
+                MonitoredGraphic.reminder_scheduled_time.isnot(None)
+            ).all()
+            
+            for graphic in graphics_needing_reminders:
+                await self._send_reminder(graphic)
+            
+            logger.info(f"Processed {len(graphics_needing_reminders)} reminders")
+            
+        except Exception as e:
+            logger.error(f"Error in check_and_send_reminders task: {e}", exc_info=True)
+    
+    @check_and_send_reminders.before_loop
+    async def before_check_and_send_reminders(self):
+        """Wait for bot to be ready before starting the task"""
+        await self.bot.wait_until_ready()
+    
+    async def _send_reminder(self, graphic: MonitoredGraphic):
+        """Send a reminder message by replying to the original message"""
+        try:
+            channel = self.bot.get_channel(graphic.channel_id)
+            if not channel:
+                logger.warning(f"Channel {graphic.channel_id} not found for graphic {graphic.message_id}")
+                # Mark as sent so we don't keep trying
+                graphic.reminder_sent = True
+                self.session.commit()
+                return
+            
+            try:
+                original_message = await channel.fetch_message(graphic.message_id)
+            except discord.NotFound:
+                # Original message deleted, cancel reminder and clean up
+                logger.info(f"Original message {graphic.message_id} deleted, removing from monitoring")
+                self.session.delete(graphic)
+                self.session.commit()
+                return
+            
+            # Send reminder as a reply to the original message
+            try:
+                reminder_message = await original_message.reply(self.reminder_text)
+                
+                # Add clock emoji to original message
+                await original_message.add_reaction(self.reminder_emoji)
+                
+                # Update database
+                graphic.reminder_sent = True
+                graphic.reminder_message_id = reminder_message.id
+                self.session.commit()
+                
+                logger.info(f"Sent reminder for message {graphic.message_id} (reminder message: {reminder_message.id})")
+                
+            except discord.Forbidden:
+                logger.error(f"Cannot send message or add reaction in channel {graphic.channel_id}")
+                graphic.reminder_sent = True  # Mark as sent to avoid retrying
+                self.session.commit()
+                
+        except Exception as e:
+            logger.error(f"Error sending reminder for graphic {graphic.message_id}: {e}", exc_info=True)
     
     async def _request_deletion_approval(self, graphic: MonitoredGraphic):
         """Send DM to moderator asking for deletion approval"""
@@ -332,6 +460,17 @@ class GraphicsMonitorCog(commands.GroupCog, group_name="graphics"):
                     del self.pending_approvals[graphic.message_id]
                 return
             
+            # Delete reminder message if it exists
+            if graphic.reminder_message_id:
+                try:
+                    reminder_message = await channel.fetch_message(graphic.reminder_message_id)
+                    await reminder_message.delete()
+                    logger.info(f"Deleted reminder message {graphic.reminder_message_id}")
+                except discord.NotFound:
+                    logger.info(f"Reminder message {graphic.reminder_message_id} already deleted")
+                except Exception as e:
+                    logger.error(f"Error deleting reminder message: {e}", exc_info=True)
+            
             if approved:
                 # Delete the message
                 await message.delete()
@@ -388,6 +527,14 @@ class GraphicsMonitorCog(commands.GroupCog, group_name="graphics"):
         parse_result = DateParser.parse_date(message.content)
         
         if parse_result.original_date_string and parse_result.expiry_datetime:
+            # Calculate reminder time
+            reminder_time = None
+            if parse_result.in_effect_datetime:
+                reminder_time = self._calculate_reminder_time(
+                    parse_result.in_effect_datetime,
+                    message.created_at
+                )
+            
             # Add to monitoring
             graphic = MonitoredGraphic(
                 message_id=message.id,
@@ -395,16 +542,76 @@ class GraphicsMonitorCog(commands.GroupCog, group_name="graphics"):
                 guild_id=message.guild.id,
                 author_id=message.author.id,
                 date_format=parse_result.original_date_string,
-                expiry_date=parse_result.expiry_datetime
+                expiry_date=parse_result.expiry_datetime,
+                in_effect_date=parse_result.in_effect_datetime,
+                reminder_scheduled_time=reminder_time
             )
             self.session.add(graphic)
             self.session.commit()
             
-            logger.info(f"Automatically added graphic {message.id} to monitoring (expires: {parse_result.expiry_datetime})")
+            reminder_info = f", reminder at: {reminder_time}" if reminder_time else ", no reminder"
+            logger.info(f"Automatically added graphic {message.id} to monitoring (expires: {parse_result.expiry_datetime}{reminder_info})")
             
         else:
             # No valid date format found - ask moderator
             await self._request_date_format(message)
+    
+    @commands.Cog.listener()
+    async def on_message_edit(self, before: Message, after: Message):
+        """Handle message edits to update reminder information"""
+        # Ignore bot messages
+        if after.author.bot:
+            return
+        
+        # Check if message is being monitored
+        graphic = self.session.query(MonitoredGraphic).filter_by(message_id=after.id).first()
+        if not graphic:
+            return
+        
+        # If reminder already sent, don't update
+        if graphic.reminder_sent:
+            logger.info(f"Skipping reminder update for {after.id} - reminder already sent")
+            return
+        
+        # Re-parse the date from updated content
+        parse_result = DateParser.parse_date(after.content)
+        
+        if parse_result.original_date_string and parse_result.expiry_datetime:
+            # Recalculate reminder time based on original message creation time
+            reminder_time = None
+            if parse_result.in_effect_datetime:
+                reminder_time = self._calculate_reminder_time(
+                    parse_result.in_effect_datetime,
+                    after.created_at
+                )
+            
+            # Update the graphic record
+            graphic.date_format = parse_result.original_date_string
+            graphic.expiry_date = parse_result.expiry_datetime
+            graphic.in_effect_date = parse_result.in_effect_datetime
+            graphic.reminder_scheduled_time = reminder_time
+            self.session.commit()
+            
+            logger.info(f"Updated graphic {after.id} after edit (new expiry: {parse_result.expiry_datetime}, reminder: {reminder_time})")
+        else:
+            # No valid date format in edited message - remove from monitoring and delete reminder if exists
+            logger.info(f"No valid date in edited message {after.id}, removing from monitoring")
+            
+            # Delete reminder message if it exists
+            if graphic.reminder_message_id:
+                try:
+                    channel = self.bot.get_channel(graphic.channel_id)
+                    if channel:
+                        reminder_message = await channel.fetch_message(graphic.reminder_message_id)
+                        await reminder_message.delete()
+                        logger.info(f"Deleted reminder message {graphic.reminder_message_id} after edit")
+                except discord.NotFound:
+                    pass
+                except Exception as e:
+                    logger.error(f"Error deleting reminder message: {e}", exc_info=True)
+            
+            self.session.delete(graphic)
+            self.session.commit()
     
     async def _request_date_format(self, message: Message):
         """Ask moderator to provide date format for a message"""
@@ -554,7 +761,17 @@ class GraphicsMonitorCog(commands.GroupCog, group_name="graphics"):
             
             expiry_str = graphic.expiry_date.strftime("%Y-%m-%d %H:%M UTC") if graphic.expiry_date else "No date"
             
-            field_value = f"**Channel:** {channel_name}\n**Date:** {graphic.date_format}\n**Expires:** {expiry_str}\n**Status:** {status}"
+            # Add reminder info
+            reminder_info = ""
+            if graphic.reminder_scheduled_time:
+                if graphic.reminder_sent:
+                    reminder_info = f"\n**Reminder:** Sent ✅"
+                else:
+                    reminder_info = f"\n**Reminder:** {graphic.reminder_scheduled_time.strftime('%Y-%m-%d %H:%M UTC')}"
+            else:
+                reminder_info = "\n**Reminder:** None"
+            
+            field_value = f"**Channel:** {channel_name}\n**Date:** {graphic.date_format}\n**Expires:** {expiry_str}\n**Status:** {status}{reminder_info}"
             
             embed.add_field(
                 name=f"{i}. Message {graphic.message_id}",
@@ -646,6 +863,15 @@ class GraphicsMonitorCog(commands.GroupCog, group_name="graphics"):
             )
             return
         
+        # Calculate reminder time based on when command is run
+        reminder_time = None
+        if parse_result.in_effect_datetime:
+            command_time = datetime.datetime.now(datetime.timezone.utc)
+            reminder_time = self._calculate_reminder_time(
+                parse_result.in_effect_datetime,
+                command_time
+            )
+        
         # Add to monitoring
         graphic = MonitoredGraphic(
             message_id=msg_id,
@@ -653,19 +879,24 @@ class GraphicsMonitorCog(commands.GroupCog, group_name="graphics"):
             guild_id=interaction.guild_id,
             author_id=message.author.id,
             date_format=parse_result.original_date_string,
-            expiry_date=parse_result.expiry_datetime
+            expiry_date=parse_result.expiry_datetime,
+            in_effect_date=parse_result.in_effect_datetime,
+            reminder_scheduled_time=reminder_time
         )
         self.session.add(graphic)
         self.session.commit()
+        
+        reminder_text = f"\n**Reminder:** {reminder_time.strftime('%Y-%m-%d %H:%M UTC')}" if reminder_time else "\n**Reminder:** None (message posted <48h before effect time)"
         
         await interaction.response.send_message(
             f"✅ Added message to monitoring.\n"
             f"**Message:** [Jump to message]({message.jump_url})\n"
             f"**Date range:** {parse_result.original_date_string}\n"
-            f"**Expires:** {parse_result.expiry_datetime.strftime('%Y-%m-%d %H:%M UTC')} (includes 1-day grace period)",
+            f"**Expires:** {parse_result.expiry_datetime.strftime('%Y-%m-%d %H:%M UTC')} (includes 1-day grace period)"
+            f"{reminder_text}",
             ephemeral=True
         )
-        logger.info(f"Manually added graphic {msg_id} to monitoring (expires: {parse_result.expiry_datetime})")
+        logger.info(f"Manually added graphic {msg_id} to monitoring (expires: {parse_result.expiry_datetime}, reminder: {reminder_time})")
     
     @app_commands.command(name="remove-graphics-monitor", description="Remove a message from graphics monitoring")
     @app_commands.describe(message_id="The ID of the message to stop monitoring")
@@ -685,6 +916,19 @@ class GraphicsMonitorCog(commands.GroupCog, group_name="graphics"):
                 ephemeral=True
             )
             return
+        
+        # Delete reminder message if it exists
+        if graphic.reminder_message_id:
+            try:
+                channel = self.bot.get_channel(graphic.channel_id)
+                if channel:
+                    reminder_message = await channel.fetch_message(graphic.reminder_message_id)
+                    await reminder_message.delete()
+                    logger.info(f"Deleted reminder message {graphic.reminder_message_id}")
+            except discord.NotFound:
+                logger.info(f"Reminder message {graphic.reminder_message_id} already deleted")
+            except Exception as e:
+                logger.error(f"Error deleting reminder message: {e}", exc_info=True)
         
         self.session.delete(graphic)
         self.session.commit()

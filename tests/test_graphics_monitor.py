@@ -223,13 +223,15 @@ class TestDateParser:
         
         # Test with date range - should expire on end_date + 1 day at 23:59:59
         result = DateParser.parse_date("01.01-05.01")
-        expected_expiry = datetime.datetime(current_year, 1, 6, 23, 59, 59)  # Jan 5 + 1 day
-        assert result.expiry_datetime == expected_expiry
+        expected_expiry = datetime.datetime(current_year, 1, 6, 23, 59, 59, tzinfo=datetime.timezone.utc)  # Jan 5 + 1 day
+        expire_datetime = result.expiry_datetime
+        assert expire_datetime == expected_expiry
         
         # Test with datetime range - should add 1 day to end time
         result = DateParser.parse_date("01.01 10:00-18:00")
-        expected_expiry = datetime.datetime(current_year, 1, 2, 18, 0)  # Jan 1 18:00 + 1 day
-        assert result.expiry_datetime == expected_expiry
+        expected_expiry = datetime.datetime(current_year, 1, 2, 18, 0, tzinfo=datetime.timezone.utc)  # Jan 1 18:00 + 1 day
+        expire_datetime = result.expiry_datetime
+        assert expire_datetime == expected_expiry
     
     def test_multiple_date_patterns_first_match_wins(self):
         """Test that first matching pattern is used when multiple patterns exist"""
