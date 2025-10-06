@@ -3,14 +3,12 @@ import os
 import logging
 from discord.ext import commands
 from discord import Intents
+from pathlib import Path
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from dotenv import load_dotenv
-from pathlib import Path
-root = Path(__file__).parent
-import sys
-sys.path.append(str(root))
+
 # Import shared models and cogs
 from database.models import Base
 from cogs.only_attachments import OnlyAttachmentsCog
