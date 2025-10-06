@@ -190,6 +190,7 @@ class GraphicsMonitorCog(commands.GroupCog, group_name="graphics"):
         self.session = session
         self.moderator_id = moderator_id
         self.pending_approvals = {}  # message_id -> MonitoredGraphic
+        self.pending_date_requests = {}  # message_id -> Message (for persistence)
         
         # Start the monitoring task
         self.check_expired_graphics.start()
@@ -374,6 +375,15 @@ class GraphicsMonitorCog(commands.GroupCog, group_name="graphics"):
         if not message.attachments:
             return
         
+        # Check if already being monitored (avoid duplicates)
+        existing = self.session.query(MonitoredGraphic).filter_by(
+            message_id=message.id
+        ).first()
+        
+        if existing:
+            logger.info(f"Message {message.id} is already being monitored, skipping")
+            return
+        
         # Try to parse date from message content
         parse_result = DateParser.parse_date(message.content)
         
@@ -399,6 +409,11 @@ class GraphicsMonitorCog(commands.GroupCog, group_name="graphics"):
     async def _request_date_format(self, message: Message):
         """Ask moderator to provide date format for a message"""
         try:
+            # Check if we already sent a request for this message
+            if message.id in self.pending_date_requests:
+                logger.info(f"Date format request already pending for message {message.id}")
+                return
+            
             moderator = await self.bot.fetch_user(self.moderator_id)
             
             embed = discord.Embed(
@@ -413,14 +428,29 @@ class GraphicsMonitorCog(commands.GroupCog, group_name="graphics"):
                 preview = message.content[:500] + "..." if len(message.content) > 500 else message.content
                 embed.add_field(name="Message Content", value=preview, inline=False)
             
+            if message.attachments:
+                embed.add_field(name="Attachments", value=f"{len(message.attachments)} attachment(s)", inline=True)
+                # Add first image as thumbnail if available
+                for att in message.attachments:
+                    if att.content_type and att.content_type.startswith('image/'):
+                        embed.set_thumbnail(url=att.url)
+                        break
+            
             embed.add_field(name="Message Link", value=f"[Jump to Message]({message.jump_url})", inline=False)
             embed.add_field(
-                name="Instructions",
-                value="Please use `/graphics add-graphics-monitor` to add this message with a proper date range.",
+                name="Supported Date Formats",
+                value=SUPPORTED_DATE_FORMATS,
                 inline=False
             )
             
-            await moderator.send(embed=embed)
+            # Create view with buttons
+            view = DateRequestView(self, message)
+            
+            await moderator.send(embed=embed, view=view)
+            
+            # Track pending request
+            self.pending_date_requests[message.id] = message
+            
             logger.info(f"Sent date format request to moderator for message {message.id}")
             
         except discord.Forbidden:
@@ -667,6 +697,194 @@ class GraphicsMonitorCog(commands.GroupCog, group_name="graphics"):
             ephemeral=True
         )
         logger.info(f"Removed graphic {msg_id} from monitoring")
+
+
+class DateInputModal(discord.ui.Modal, title="Add Date Format"):
+    """Modal for moderator to input date format"""
+    
+    date_input = discord.ui.TextInput(
+        label="Date Format",
+        placeholder="e.g., 25.12-31.12, 15.03 10:00-18:00, January",
+        style=discord.TextStyle.short,
+        required=True,
+        max_length=100
+    )
+    
+    def __init__(self, cog: GraphicsMonitorCog, message: Message):
+        super().__init__()
+        self.cog = cog
+        self.message = message
+    
+    async def on_submit(self, interaction: Interaction):
+        """Handle modal submission with date validation"""
+        date_string = self.date_input.value.strip()
+        
+        # Check if message still exists
+        try:
+            channel = self.cog.bot.get_channel(self.message.channel.id)
+            if not channel:
+                await interaction.response.send_message(
+                    "❌ Channel no longer exists.",
+                    ephemeral=True
+                )
+                return
+            
+            # Verify message still exists
+            await channel.fetch_message(self.message.id)
+        except discord.NotFound:
+            await interaction.response.send_message(
+                "❌ Message has been deleted and cannot be monitored.",
+                ephemeral=True
+            )
+            # Clean up tracking
+            if self.message.id in self.cog.pending_date_requests:
+                del self.cog.pending_date_requests[self.message.id]
+            return
+        except discord.Forbidden:
+            await interaction.response.send_message(
+                "❌ I no longer have access to that channel.",
+                ephemeral=True
+            )
+            return
+        
+        # Check if already being monitored
+        existing = self.cog.session.query(MonitoredGraphic).filter_by(
+            message_id=self.message.id
+        ).first()
+        
+        if existing:
+            await interaction.response.send_message(
+                f"ℹ️ This message is already being monitored (expires: {existing.expiry_date.strftime('%Y-%m-%d %H:%M UTC')}).",
+                ephemeral=True
+            )
+            return
+        
+        # Parse the date using existing DateParser
+        parse_result = DateParser.parse_date(date_string)
+        
+        if not parse_result.original_date_string or not parse_result.expiry_datetime:
+            # Invalid date format - send error embed
+            error_embed = discord.Embed(
+                title="❌ Invalid Date Format",
+                description=f"Could not parse: `{date_string}`\n\nPlease try again with a supported format.",
+                color=discord.Color.red()
+            )
+            error_embed.add_field(
+                name="Supported Formats",
+                value=SUPPORTED_DATE_FORMATS,
+                inline=False
+            )
+            error_embed.add_field(
+                name="Message Link",
+                value=f"[Jump to Message]({self.message.jump_url})",
+                inline=False
+            )
+            
+            # Send error and keep the original view active for retry
+            await interaction.response.send_message(embed=error_embed, ephemeral=True)
+            logger.info(f"Invalid date format provided for message {self.message.id}: {date_string}")
+            return
+        
+        # Valid date - add to monitoring
+        graphic = MonitoredGraphic(
+            message_id=self.message.id,
+            channel_id=self.message.channel.id,
+            guild_id=self.message.guild.id,
+            author_id=self.message.author.id,
+            date_format=parse_result.original_date_string,
+            expiry_date=parse_result.expiry_datetime
+        )
+        self.cog.session.add(graphic)
+        self.cog.session.commit()
+        
+        # Clean up tracking
+        if self.message.id in self.cog.pending_date_requests:
+            del self.cog.pending_date_requests[self.message.id]
+        
+        # Send success message
+        success_embed = discord.Embed(
+            title="✅ Monitoring Enabled",
+            description=f"Successfully added message to graphics monitoring.",
+            color=discord.Color.green()
+        )
+        success_embed.add_field(name="Channel", value=self.message.channel.mention, inline=True)
+        success_embed.add_field(name="Date Range", value=parse_result.original_date_string, inline=True)
+        success_embed.add_field(
+            name="Expires",
+            value=parse_result.expiry_datetime.strftime('%Y-%m-%d %H:%M UTC'),
+            inline=True
+        )
+        success_embed.add_field(
+            name="Message Link",
+            value=f"[Jump to Message]({self.message.jump_url})",
+            inline=False
+        )
+        
+        await interaction.response.send_message(embed=success_embed, ephemeral=True)
+        logger.info(f"Added graphic {self.message.id} to monitoring via modal (expires: {parse_result.expiry_datetime})")
+        
+        # Update the original DM to show it's been handled
+        try:
+            original_embed = interaction.message.embeds[0]
+            original_embed.color = discord.Color.green()
+            original_embed.title = "✅ Graphics Date Format Added"
+            await interaction.message.edit(embed=original_embed, view=None)
+        except:
+            pass  # If we can't update the original message, that's okay
+
+
+class DateRequestView(discord.ui.View):
+    """View with buttons for handling graphics without recognized date formats"""
+    
+    def __init__(self, cog: GraphicsMonitorCog, message: Message):
+        super().__init__(timeout=None)  # No timeout
+        self.cog = cog
+        self.message = message
+    
+    @discord.ui.button(label="Add Date", style=discord.ButtonStyle.primary, emoji="📅", custom_id="add_date")
+    async def add_date_button(self, interaction: Interaction, button: discord.ui.Button):
+        """Open modal to input date format"""
+        modal = DateInputModal(self.cog, self.message)
+        await interaction.response.send_modal(modal)
+    
+    @discord.ui.button(label="Skip Monitoring", style=discord.ButtonStyle.secondary, emoji="⏭️", custom_id="skip_monitoring")
+    async def skip_button(self, interaction: Interaction, button: discord.ui.Button):
+        """Skip monitoring for this message"""
+        # Clean up tracking
+        if self.message.id in self.cog.pending_date_requests:
+            del self.cog.pending_date_requests[self.message.id]
+        
+        await interaction.response.send_message(
+            f"✅ Skipped monitoring for message in {self.message.channel.mention}.",
+            ephemeral=True
+        )
+        logger.info(f"Skipped monitoring for message {self.message.id}")
+        
+        # Update the original DM to show it's been handled
+        try:
+            original_embed = interaction.message.embeds[0]
+            original_embed.color = discord.Color.greyple()
+            original_embed.title = "⏭️ Graphics Monitoring Skipped"
+            await interaction.message.edit(embed=original_embed, view=None)
+        except:
+            pass
+    
+    @discord.ui.button(label="View Message", style=discord.ButtonStyle.secondary, emoji="🔗", custom_id="view_message")
+    async def view_button(self, interaction: Interaction, button: discord.ui.Button):
+        """Send message link again for easy access"""
+        view_embed = discord.Embed(
+            title="Message Reference",
+            description=f"[Click here to jump to the message]({self.message.jump_url})",
+            color=discord.Color.blue()
+        )
+        view_embed.add_field(name="Channel", value=self.message.channel.mention, inline=True)
+        view_embed.add_field(name="Author", value=self.message.author.mention, inline=True)
+        
+        if self.message.content:
+            preview = self.message.content[:500] + "..." if len(self.message.content) > 500 else self.message.content
+            view_embed.add_field(name="Content", value=preview, inline=False)
+        
+        await interaction.response.send_message(embed=view_embed, ephemeral=True)
 
 
 class ApprovalView(discord.ui.View):
