@@ -4,3 +4,4 @@ SQLAlchemy
 pylint
 black
 pytest
+tzdata
