@@ -8,3 +8,6 @@ backups/**
 stack.env
 .env.backup
 .env.bak
+
+# Alembic - ignore __pycache__ but keep migrations
+alembic/versions/__pycache__/

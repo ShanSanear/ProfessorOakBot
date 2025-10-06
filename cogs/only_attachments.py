@@ -1,23 +1,15 @@
 import logging
+import os
 
 from discord.ext import commands
 from discord import Message, Interaction, DiscordException
 import discord
 from discord import app_commands
-from sqlalchemy import Column, Integer, Boolean
-from sqlalchemy.orm import declarative_base
-import os
 
-Base = declarative_base()
+# Import shared models
+from database.models import Base, OnlyAttachmentsChannel
+
 logger = logging.getLogger("discord")
-
-
-class OnlyAttachmentsChannel(Base):
-    __tablename__ = "only_attachments_channels"
-    id = Column(Integer, primary_key=True)
-    guild_id = Column(Integer, nullable=False)  # New column
-    channel_id = Column(Integer, unique=False, nullable=False)
-    enabled = Column(Boolean, default=True)
 
 
 # The cog itself

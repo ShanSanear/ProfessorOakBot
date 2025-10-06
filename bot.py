@@ -4,17 +4,16 @@ import logging
 from discord.ext import commands
 from discord import Intents
 
-from sqlalchemy import create_engine, Column, Integer, String, Sequence
-from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 from dotenv import load_dotenv
-from cogs.only_attachments import (
-    OnlyAttachmentsCog,
-    OnlyAttachmentsChannel,
-    Base as OA_Base,
-)
-from cogs.cleanup import CleanupCog
-from cogs.graphics_monitor import GraphicsMonitorCog, Base as GM_Base
 from pathlib import Path
+
+# Import shared models and cogs
+from database.models import Base
+from cogs.only_attachments import OnlyAttachmentsCog
+from cogs.cleanup import CleanupCog
+from cogs.graphics_monitor import GraphicsMonitorCog
 
 # Load environment variables from .env if present
 load_dotenv(".env")
@@ -60,15 +59,15 @@ else:
 # logger.info(f'Allowed guild IDs: {guild_ids}')
 
 # Set up database (SQLite)
-Base = declarative_base()
 database_path = "database/botdata.db"
 Path(database_path).parent.mkdir(parents=True, exist_ok=True)
-# Import and merge OnlyAttachmentsChannel model
 engine = create_engine(f"sqlite:///{database_path}")
-OA_Base.metadata.create_all(bind=engine)
-GM_Base.metadata.create_all(bind=engine)
 
-Base.metadata.create_all(engine)
+# Run database migrations automatically on startup
+from database.migrations import run_migrations
+if not run_migrations():
+    logger.error("Failed to run database migrations. Bot may not function correctly.")
+
 Session = sessionmaker(bind=engine)
 session = Session()
 
