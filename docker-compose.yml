@@ -6,7 +6,7 @@ services:
     environment:
       - TZ=UTC
     volumes:
-      - botdata:/app/database
+      - botdata:/database
 
     env_file:
       - path: stack.env

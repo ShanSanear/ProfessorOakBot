@@ -59,10 +59,9 @@ else:
 
 # logger.info(f'Allowed guild IDs: {guild_ids}')
 
-# Set up database (SQLite)
-database_path = "database/botdata.db"
-Path(database_path).parent.mkdir(parents=True, exist_ok=True)
-engine = create_engine(f"sqlite:///{database_path}")
+DATABASE_PATH = os.getenv("DATABASE_PATH", "database/botdata.db")
+Path(DATABASE_PATH).parent.mkdir(parents=True, exist_ok=True)
+engine = create_engine(f"sqlite:///{DATABASE_PATH}")
 
 # Run database migrations automatically on startup
 from database.migrations import run_migrations
