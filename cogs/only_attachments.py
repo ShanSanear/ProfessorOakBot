@@ -32,6 +32,7 @@ class OnlyAttachmentsCog(commands.GroupCog, group_name="onlyattachments"):
     @app_commands.describe(
         channel="Channel to set as attachments only (defaults to current channel if omitted)"
     )
+    @app_commands.guild_only()
     async def add(self, interaction: Interaction, channel: discord.TextChannel = None):
         if not interaction.user.guild_permissions.administrator:
             await interaction.response.send_message(
@@ -66,6 +67,7 @@ class OnlyAttachmentsCog(commands.GroupCog, group_name="onlyattachments"):
     @app_commands.describe(
         channel="Channel to remove from attachments only (defaults to current channel if omitted)"
     )
+    @app_commands.guild_only()
     async def remove(
         self, interaction: Interaction, channel: discord.TextChannel = None
     ):
@@ -100,6 +102,7 @@ class OnlyAttachmentsCog(commands.GroupCog, group_name="onlyattachments"):
     @app_commands.command(
         name="list", description="List all channels in 'only attachments' mode."
     )
+    @app_commands.guild_only()
     async def list(self, interaction: Interaction):
         if not interaction.user.guild_permissions.administrator:
             await interaction.response.send_message(
