@@ -29,6 +29,7 @@ reminder_timezone = os.getenv("REMINDER_TIMEZONE", "Europe/Warsaw")
 reminder_time_hour = int(os.getenv("REMINDER_TIME_HOUR", "9"))
 reminder_time_minute = int(os.getenv("REMINDER_TIME_MINUTE", "0"))
 reminder_text = os.getenv("REMINDER_TEXT", "przypominajka")
+disable_reminders = os.getenv("DISABLE_REMINDERS", "false").lower() == "true"
 
 if not token or not guild_ids:
     raise ValueError(
@@ -98,7 +99,8 @@ async def setup_hook():
             reminder_timezone=reminder_timezone,
             reminder_time_hour=reminder_time_hour,
             reminder_time_minute=reminder_time_minute,
-            reminder_text=reminder_text
+            reminder_text=reminder_text,
+            disable_reminders=disable_reminders,
         )
     )
     try:

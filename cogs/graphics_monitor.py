@@ -161,7 +161,8 @@ class GraphicsMonitorCog(commands.GroupCog, group_name="graphics"):
                  reminder_timezone: str = "Europe/Warsaw",
                  reminder_time_hour: int = 9,
                  reminder_time_minute: int = 0,
-                 reminder_text: str = "przypominajka"):
+                 reminder_text: str = "przypominajka",
+                 disable_reminders: bool = False):
         self.bot = bot
         self.session = session
         self.moderator_id = moderator_id
@@ -174,6 +175,7 @@ class GraphicsMonitorCog(commands.GroupCog, group_name="graphics"):
         self.reminder_time_minute = reminder_time_minute
         self.reminder_text = reminder_text
         self.reminder_emoji = "⏰"  # Clock emoji for marking messages with reminders
+        self.disable_reminders = disable_reminders
         
         # Start the monitoring tasks
         self.check_expired_graphics.start()
@@ -245,6 +247,9 @@ class GraphicsMonitorCog(commands.GroupCog, group_name="graphics"):
     @tasks.loop(hours=1)
     async def check_and_send_reminders(self):
         """Hourly task to check for reminders that need to be sent"""
+        if self.disable_reminders:
+            logger.info("Reminders are disabled; skipping reminder check.")
+            return
         logger.info("Running reminder check...")
         
         try:
