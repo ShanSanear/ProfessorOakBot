@@ -62,7 +62,7 @@ else:
 
 DATABASE_PATH = os.getenv("DATABASE_PATH", "database/botdata.db")
 Path(DATABASE_PATH).parent.mkdir(parents=True, exist_ok=True)
-engine = create_engine(f"sqlite://{DATABASE_PATH}")
+engine = create_engine(f"sqlite:///{DATABASE_PATH}")
 
 # Run database migrations automatically on startup
 from database.migrations import run_migrations
