@@ -85,21 +85,28 @@ class DateParser:
                  and in_effect_datetime (start time)
         """
         content_lower = content.lower()
-        
+        current_date = datetime.datetime.now()
+        current_month = current_date.month
         # Try DD.MM-DD.MM format
         match = re.search(cls.DATE_RANGE_PATTERN, content)
         if match:
             day1, month1, day2, month2 = map(int, match.groups())
-            current_year = datetime.datetime.now().year
+            current_date = datetime.datetime.now()
+            start_year_to_use = current_date.year
+            end_year_to_use = current_date.year
+            current_month = current_date.month
+            # Corner case, where we are in November/December and the range is completely in next year
+            if current_month > month1 + 6:
+                start_year_to_use += 1
+                end_year_to_use += 1
+            # Case when it spans both years
+            if month2 < month1:
+                end_year_to_use += 1
             
             try:
                 # Create start and end dates
-                start_date = datetime.datetime(current_year, month1, day1, tzinfo=datetime.timezone.utc)
-                end_date = datetime.datetime(current_year, month2, day2, tzinfo=datetime.timezone.utc)
-                
-                # If end date is before start date, it spans to next year
-                if end_date < start_date:
-                    end_date = datetime.datetime(current_year + 1, month2, day2, tzinfo=datetime.timezone.utc)
+                start_date = datetime.datetime(start_year_to_use, month1, day1, tzinfo=datetime.timezone.utc)
+                end_date = datetime.datetime(end_year_to_use, month2, day2, tzinfo=datetime.timezone.utc)
                 
                 # Add 1 day grace period and set to end of day
                 expiry = end_date.replace(hour=23, minute=59, second=59) + datetime.timedelta(days=1)
@@ -111,12 +118,15 @@ class DateParser:
         match = re.search(cls.DATETIME_RANGE_PATTERN, content)
         if match:
             day, month, hour1, minute1, hour2, minute2 = map(int, match.groups())
-            current_year = datetime.datetime.now().year
+            # Corner case, where we are in November/December and the range is completely in next year
+            year_to_use = current_date.year
+            if current_month > month + 6:
+                year_to_use += 1
             
             try:
                 # Create datetime with start and end times
-                start_datetime = datetime.datetime(current_year, month, day, hour1, minute1, tzinfo=datetime.timezone.utc)
-                end_datetime = datetime.datetime(current_year, month, day, hour2, minute2, tzinfo=datetime.timezone.utc)
+                start_datetime = datetime.datetime(year_to_use, month, day, hour1, minute1, tzinfo=datetime.timezone.utc)
+                end_datetime = datetime.datetime(year_to_use, month, day, hour2, minute2, tzinfo=datetime.timezone.utc)
                 
                 # Add 1 day grace period
                 expiry = end_datetime + datetime.timedelta(days=1)
@@ -129,19 +139,21 @@ class DateParser:
         if match:
             month_name = match.group(1)
             month_num = cls.MONTHS[month_name]
-            current_year = datetime.datetime.now().year
+            year_to_use = current_date.year
+            if current_month > month_num + 6:
+                year_to_use += 1
             
             # Start date is first day of the month
-            start_date = datetime.datetime(current_year, month_num, 1, tzinfo=datetime.timezone.utc)
+            start_date = datetime.datetime(year_to_use, month_num, 1, tzinfo=datetime.timezone.utc)
             
             # Get last day of the month
             if month_num == 12:
                 # December - last day is 31st
                 last_day = 31
-                end_date = datetime.datetime(current_year, 12, 31, 23, 59, 59, tzinfo=datetime.timezone.utc)
+                end_date = datetime.datetime(year_to_use, 12, 31, 23, 59, 59, tzinfo=datetime.timezone.utc)
             else:
                 # Get first day of next month, then subtract 1 day
-                next_month = datetime.datetime(current_year, month_num + 1, 1, tzinfo=datetime.timezone.utc)
+                next_month = datetime.datetime(year_to_use, month_num + 1, 1, tzinfo=datetime.timezone.utc)
                 end_date = next_month - datetime.timedelta(seconds=1)
             
             # Add 1 day grace period
