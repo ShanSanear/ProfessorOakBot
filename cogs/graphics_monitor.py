@@ -36,6 +36,7 @@ class DateParser:
     DATETIME_RANGE_PATTERN = r'(\d{1,2})\.(\d{1,2})\s+(\d{1,2}):(\d{1,2})\s*-\s*(\d{1,2}):(\d{1,2})'  # DD.MM HH:mm-HH:mm (spaces around dash optional)
     MONTH_NAME_PATTERN = r'\b(january|february|march|april|may|june|july|august|september|october|november|december|styczeń|styczen|luty|marzec|kwiecień|kwiecien|maj|czerwiec|lipiec|sierpień|sierpien|wrzesień|wrzesien|październik|pazdziernik|listopad|grudzień|grudzien)\b'
     DATE_RANGE_PATTERN_WITH_YEAR_SHORT = r'(\d{1,2})\.(\d{1,2})\.(\d{2})\s*-\s*(\d{1,2})\.(\d{1,2})\.(\d{2})' # DD.MM.YY-DD.MM.YY (spaces around dash optional)
+    DATE_RANGE_PATTERN_WITH_YEAR_FULL = r'(\d{1,2})\.(\d{1,2})\.(\d{4})\s*-\s*(\d{1,2})\.(\d{1,2})\.(\d{4})' # DD.MM.YYYY-DD.MM.YYYY (spaces around dash optional)
     MONTHS = {
         # English month names
         'january': 1, 'february': 2, 'march': 3, 'april': 4,
@@ -97,6 +98,20 @@ class DateParser:
                 # Create start and end dates
                 start_date = datetime.datetime(year1, month1, day1, tzinfo=datetime.timezone.utc)
                 end_date = datetime.datetime(year2, month2, day2, tzinfo=datetime.timezone.utc)
+                
+                # Add 1 day grace period and set to end of day
+                expiry = end_date.replace(hour=23, minute=59, second=59) + datetime.timedelta(days=1)
+                return DateParseResult(match.group(0), expiry, start_date)
+            except ValueError:
+                pass  # Invalid date, continue to next pattern
+
+        match = re.search(cls.DATE_RANGE_PATTERN_WITH_YEAR_FULL, content)
+        if match:
+            day1, month1, year1_full, day2, month2, year2_full = map(int, match.groups())
+            try:
+                # Create start and end dates
+                start_date = datetime.datetime(year1_full, month1, day1, tzinfo=datetime.timezone.utc)
+                end_date = datetime.datetime(year2_full, month2, day2, tzinfo=datetime.timezone.utc)
                 
                 # Add 1 day grace period and set to end of day
                 expiry = end_date.replace(hour=23, minute=59, second=59) + datetime.timedelta(days=1)
