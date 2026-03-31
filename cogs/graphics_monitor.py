@@ -288,6 +288,7 @@ class GraphicsMonitorCog(commands.GroupCog, group_name="graphics"):
         reminder_text: str = "przypominajka",
         disable_reminders: bool = False,
         notify_author_on_date_missing: bool = False,
+        auto_delete_expired_graphics: bool = False,
     ):
         self.bot = bot
         self.session = session
@@ -305,6 +306,7 @@ class GraphicsMonitorCog(commands.GroupCog, group_name="graphics"):
 
         # Feature flags
         self.notify_author_on_date_missing = notify_author_on_date_missing
+        self.auto_delete_expired_graphics = auto_delete_expired_graphics
 
         # Start the monitoring tasks
         self.check_expired_graphics.start()
@@ -335,7 +337,10 @@ class GraphicsMonitorCog(commands.GroupCog, group_name="graphics"):
             )
 
             for graphic in expired_graphics:
-                await self._request_deletion_approval(graphic)
+                if self.auto_delete_expired_graphics:
+                    await self._auto_delete_graphic(graphic)
+                else:
+                    await self._request_deletion_approval(graphic)
 
             logger.info(f"Processed {len(expired_graphics)} expired graphics")
 
@@ -563,6 +568,116 @@ class GraphicsMonitorCog(commands.GroupCog, group_name="graphics"):
         except Exception as e:
             logger.error(
                 f"Error requesting deletion approval for graphic {graphic.message_id}: {e}",
+                exc_info=True,
+            )
+
+    async def _auto_delete_graphic(self, graphic: MonitoredGraphic):
+        """
+        Automatically delete an expired graphic and notify the moderator.
+        Used when AUTO_DELETE_EXPIRED_GRAPHICS is enabled.
+        """
+        try:
+            channel = self.bot.get_channel(graphic.channel_id)
+            if not channel:
+                logger.warning(
+                    f"Channel {graphic.channel_id} not found for graphic "
+                    f"{graphic.message_id}; removing from DB."
+                )
+                self.session.delete(graphic)
+                self.session.commit()
+                return
+
+            try:
+                message = await channel.fetch_message(graphic.message_id)
+            except discord.NotFound:
+                logger.info(
+                    f"Message {graphic.message_id} already deleted, "
+                    f"removing from monitoring."
+                )
+                self.session.delete(graphic)
+                self.session.commit()
+                return
+
+            # Delete reminder message if one was sent
+            if graphic.reminder_message_id:
+                try:
+                    reminder_msg = await channel.fetch_message(
+                        graphic.reminder_message_id
+                    )
+                    await reminder_msg.delete()
+                    logger.info(
+                        f"Deleted reminder message {graphic.reminder_message_id}"
+                    )
+                except discord.NotFound:
+                    pass
+                except Exception as e:
+                    logger.error(f"Error deleting reminder message: {e}", exc_info=True)
+
+            # Delete the expired graphic message
+            await message.delete()
+            logger.info(f"Auto-deleted expired graphic message {graphic.message_id}")
+
+            # Remove from database
+            self.session.delete(graphic)
+            self.session.commit()
+
+            # Notify moderator (mirrors the approval-request embed, green colour)
+            try:
+                moderator = await self.bot.fetch_user(self.moderator_id)
+                embed = discord.Embed(
+                    title="✅ Graphics Message Auto-Deleted",
+                    description=f"An expired graphic in {channel.mention} was automatically deleted.",
+                    color=discord.Color.green(),
+                )
+                embed.add_field(name="Channel", value=channel.mention, inline=True)
+                embed.add_field(
+                    name="Date Range",
+                    value=graphic.date_format or "N/A",
+                    inline=True,
+                )
+                embed.add_field(
+                    name="Expired",
+                    value=(
+                        graphic.expiry_date.strftime("%Y-%m-%d %H:%M UTC")
+                        if graphic.expiry_date
+                        else "N/A"
+                    ),
+                    inline=True,
+                )
+
+                if message.content:
+                    preview = (
+                        message.content[:200] + "..."
+                        if len(message.content) > 200
+                        else message.content
+                    )
+                    embed.add_field(name="Message Content", value=preview, inline=False)
+
+                if message.attachments:
+                    embed.add_field(
+                        name="Attachments",
+                        value=f"{len(message.attachments)} attachment(s)",
+                        inline=True,
+                    )
+                    for att in message.attachments:
+                        if att.content_type and att.content_type.startswith("image/"):
+                            embed.set_thumbnail(url=att.url)
+                            break
+
+                await moderator.send(embed=embed)
+                logger.info(
+                    f"Sent auto-delete notification to moderator for message "
+                    f"{graphic.message_id}"
+                )
+            except discord.Forbidden:
+                logger.error(
+                    f"Cannot send auto-delete notification DM to moderator "
+                    f"{self.moderator_id}"
+                )
+
+        except Exception as e:
+            logger.error(
+                f"Error auto-deleting graphic {graphic.message_id}: {e}",
                 exc_info=True,
             )
 

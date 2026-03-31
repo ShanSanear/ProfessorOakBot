@@ -33,6 +33,9 @@ disable_reminders = os.getenv("DISABLE_REMINDERS", "false").lower() == "true"
 notify_author_on_date_missing = (
     os.getenv("NOTIFY_AUTHOR_ON_DATE_MISSING", "false").lower() == "true"
 )
+auto_delete_expired_graphics = (
+    os.getenv("AUTO_DELETE_EXPIRED_GRAPHICS", "false").lower() == "true"
+)
 
 if not token or not guild_ids:
     raise ValueError(
@@ -106,6 +109,7 @@ async def setup_hook():
             reminder_text=reminder_text,
             disable_reminders=disable_reminders,
             notify_author_on_date_missing=notify_author_on_date_missing,
+            auto_delete_expired_graphics=auto_delete_expired_graphics,
         )
     )
     try:
