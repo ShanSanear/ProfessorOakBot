@@ -30,6 +30,9 @@ reminder_time_hour = int(os.getenv("REMINDER_TIME_HOUR", "9"))
 reminder_time_minute = int(os.getenv("REMINDER_TIME_MINUTE", "0"))
 reminder_text = os.getenv("REMINDER_TEXT", "przypominajka")
 disable_reminders = os.getenv("DISABLE_REMINDERS", "false").lower() == "true"
+notify_author_on_date_missing = (
+    os.getenv("NOTIFY_AUTHOR_ON_DATE_MISSING", "false").lower() == "true"
+)
 
 if not token or not guild_ids:
     raise ValueError(
@@ -66,6 +69,7 @@ engine = create_engine(f"sqlite:///{DATABASE_PATH}")
 
 # Run database migrations automatically on startup
 from database.migrations import run_migrations
+
 if not run_migrations():
     logger.error("Failed to run database migrations. Bot may not function correctly.")
 
@@ -101,6 +105,7 @@ async def setup_hook():
             reminder_time_minute=reminder_time_minute,
             reminder_text=reminder_text,
             disable_reminders=disable_reminders,
+            notify_author_on_date_missing=notify_author_on_date_missing,
         )
     )
     try:
